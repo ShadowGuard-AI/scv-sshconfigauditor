@@ -1,0 +1,19 @@
+rules:
+  - name: root-login-absent
+    description: PermitRootLogin yes must not appear
+    regex: "PermitRootLogin\\s+yes"
+    recommendation: "Set PermitRootLogin no"
+    severity: high
+    condition: absent
+  - name: password-auth-match
+    description: PasswordAuthentication must be exactly no
+    regex: "PasswordAuthentication no"
+    recommendation: "Set PasswordAuthentication no"
+    severity: high
+    condition: match
+  - name: protocol-present
+    description: Protocol 2 must be present
+    regex: "Protocol\\s+2"
+    recommendation: "Set Protocol 2"
+    severity: medium
+    condition: present

@@ -105,6 +105,15 @@ class SSHConfigAuditor:
             print(f"Error: sshd_config file not found: {self.sshd_config_file}")
             sys.exit(1)
 
+        # Comment lines are skipped before any rule is tested: a line
+        # whose first non space character is a hash is not an active
+        # setting, matching how sshd itself reads the file.
+        active_lines = []
+        for idx, raw_line in enumerate(config_content):
+            if raw_line.lstrip().startswith("#"):
+                continue
+            active_lines.append((idx, raw_line))
+
         for rule in self.rules:
             rule_name = rule['name']
             description = rule['description']
@@ -116,9 +125,13 @@ class SSHConfigAuditor:
             logging.debug(f"Checking rule: {rule_name}")
 
             found_match = False
-            for line_number, line in enumerate(config_content):
+            matched_index = None
+            matched_line = None
+            for line_number, line in active_lines:
                 if re.search(regex, line):
                     found_match = True
+                    matched_index = line_number
+                    matched_line = line
                     break
 
             if condition == "present" and not found_match:
@@ -138,20 +151,31 @@ class SSHConfigAuditor:
                     'severity': severity,
                     'recommendation': recommendation,
                     'file': self.sshd_config_file,
-                    'line': line_number + 1,
+                    'line': matched_index + 1,
+                })
+                logging.warning(f"Rule '{rule_name}' failed: {description}")
+            elif condition == "match" and not found_match:
+                # A match rule means the file must contain a line fully
+                # matching the expression, so a missing setting fails.
+                self.findings.append({
+                    'rule': rule_name,
+                    'description': description,
+                    'severity': severity,
+                    'recommendation': recommendation,
+                    'file': self.sshd_config_file,
+                    'line': None,
                 })
                 logging.warning(f"Rule '{rule_name}' failed: {description}")
             elif condition == "match" and found_match:
                 # Verify if the found line matches the expected configuration
-                matched_line = config_content[line_number].strip()
-                if not re.fullmatch(regex, matched_line):
+                if not re.fullmatch(regex, matched_line.strip()):
                     self.findings.append({
                         'rule': rule_name,
                         'description': description,
                         'severity': severity,
                         'recommendation': recommendation,
                         'file': self.sshd_config_file,
-                        'line': line_number + 1,
+                        'line': matched_index + 1,
                     })
                     logging.warning(f"Rule '{rule_name}' failed: {description}")
 
@@ -162,7 +186,7 @@ class SSHConfigAuditor:
                     'severity': severity,
                     'recommendation': recommendation,
                     'file': self.sshd_config_file,
-                    'line': line_number + 1,
+                    'line': matched_index + 1,
                 })
                 logging.warning(f"Rule '{rule_name}' failed: {description}")
 
@@ -232,6 +256,10 @@ def main():
 
     try:
         auditor = SSHConfigAuditor(args.config_file, args.sshd_config_file)
+        if not auditor.rules:
+            print("No rules to audit.")
+            logging.error("No rules to audit.")
+            sys.exit(1)
         auditor.audit_sshd_config()
         auditor.generate_report()
     except (FileNotFoundError, ValueError) as e:
