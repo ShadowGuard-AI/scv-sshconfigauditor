@@ -108,6 +108,10 @@ class SSHConfigAuditor:
         # Comment lines are skipped before any rule is tested: a line
         # whose first non space character is a hash is not an active
         # setting, matching how sshd itself reads the file.
+        # Two sshd features get no such matching treatment. Include
+        # directives are never followed, so everything a real config
+        # pulls in from a .d directory is simply never audited, and
+        # Match blocks are read as if their settings were global.
         active_lines = []
         for idx, raw_line in enumerate(config_content):
             if raw_line.lstrip().startswith("#"):
@@ -127,6 +131,11 @@ class SSHConfigAuditor:
             found_match = False
             matched_index = None
             matched_line = None
+            # The search stops at the first matching line and no later
+            # line is ever looked at for this rule. That mirrors how
+            # sshd takes the first obtained value for most keywords,
+            # but it also means a rule cannot see a bad second setting
+            # hiding behind a good first one.
             for line_number, line in active_lines:
                 if re.search(regex, line):
                     found_match = True
@@ -168,6 +177,12 @@ class SSHConfigAuditor:
                 logging.warning(f"Rule '{rule_name}' failed: {description}")
             elif condition == "match" and found_match:
                 # Verify if the found line matches the expected configuration
+                # The same regex does both jobs: it searched for a line
+                # containing a match, and here it must match the whole
+                # stripped line. A pattern written as a substring search,
+                # which is how the other conditions use it, will almost
+                # never fullmatch, so a correct setting can still fail a
+                # match rule unless the pattern was written full line.
                 if not re.fullmatch(regex, matched_line.strip()):
                     self.findings.append({
                         'rule': rule_name,
